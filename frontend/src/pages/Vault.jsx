@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Shield, Search, Plus, X, Edit3, Trash2, Upload, FileText,
   Phone, Mail, MapPin, Droplet, Calendar, AlertTriangle,
-  ChevronDown, ChevronUp, RefreshCw, LogOut, User, Tag
+  ChevronDown, ChevronUp, RefreshCw, LogOut, User, Tag,
+  Navigation, MessageSquare, Send, CheckCircle2
 } from 'lucide-react';
 import { getUser, getToken, clearAuth, authFetch, API_BASE } from '../utils/api';
 
@@ -136,6 +137,215 @@ const FriendModal = ({ friend, onClose, onSave }) => {
         </form>
       </motion.div>
     </div>
+  );
+};
+
+// ─── Floating SOS Alert Button + Panel ──────────────────────────────────────
+const FloatingSOS = ({ friends }) => {
+  const [open, setOpen] = useState(false);
+  const [selectedFriend, setSelectedFriend] = useState(null);
+  const [message, setMessage] = useState('');
+  const [location, setLocation] = useState(null);
+  const [locStatus, setLocStatus] = useState('idle'); // idle | requesting | granted | denied
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+  const panelRef = useRef(null);
+
+  // Auto-request location when panel opens
+  useEffect(() => {
+    if (open) {
+      setSent(false);
+      setError('');
+      setLocation(null);
+      setLocStatus('requesting');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
+          setLocStatus('granted');
+        },
+        () => setLocStatus('denied'),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+  }, [open]);
+
+  // Close panel on outside click
+  useEffect(() => {
+    const handler = (e) => { if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false); };
+    if (open) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const handleSend = async () => {
+    if (!selectedFriend) { setError('Please select a friend to alert.'); return; }
+    setSending(true); setError('');
+    try {
+      const body = {};
+      if (location) body.location = location;
+      if (message.trim()) body.message = message.trim();
+
+      const res = await authFetch(`/api/vault/${selectedFriend}/emergency`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      setSent(true);
+      setTimeout(() => { setOpen(false); setSent(false); setMessage(''); setSelectedFriend(null); }, 3000);
+    } catch (err) {
+      setError(err.message || 'Failed to send alert.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Floating SOS Trigger Button */}
+      <motion.button
+        id="sos-float-btn"
+        onClick={() => setOpen(true)}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
+        animate={{ boxShadow: ['0 0 0 0 rgba(239,68,68,0.7)', '0 0 0 14px rgba(239,68,68,0)', '0 0 0 0 rgba(239,68,68,0)'] }}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
+        className="fixed bottom-6 right-6 z-50 w-16 h-16 bg-gradient-to-br from-red-500 to-rose-600 rounded-full flex flex-col items-center justify-center text-white shadow-2xl shadow-red-500/50 border-2 border-red-400/30 cursor-pointer"
+        aria-label="Send Emergency SOS Alert"
+      >
+        <AlertTriangle className="w-6 h-6" />
+        <span className="text-[9px] font-black tracking-widest mt-0.5">SOS</span>
+      </motion.button>
+
+      {/* SOS Panel */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end p-4 sm:p-6 bg-black/60 backdrop-blur-sm"
+          >
+            <motion.div
+              ref={panelRef}
+              initial={{ opacity: 0, y: 40, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 40, scale: 0.97 }}
+              transition={{ type: 'spring', damping: 22, stiffness: 280 }}
+              className="w-full sm:w-96 bg-slate-900 border border-red-500/30 rounded-2xl shadow-2xl shadow-red-500/20 overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-red-600/30 to-rose-600/20 border-b border-red-500/20">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center animate-pulse">
+                    <AlertTriangle className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-bold text-sm">Emergency Alert</h3>
+                    <p className="text-red-400 text-xs">Sends urgent email immediately</p>
+                  </div>
+                </div>
+                <button onClick={() => setOpen(false)} className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-all">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {sent ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-center py-6"
+                  >
+                    <CheckCircle2 className="w-14 h-14 text-green-400 mx-auto mb-3" />
+                    <p className="text-white font-bold text-base">Alert Sent!</p>
+                    <p className="text-slate-400 text-sm mt-1">Emergency email dispatched successfully.</p>
+                  </motion.div>
+                ) : (
+                  <>
+                    {/* Friend Selector */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-2">Alert for which friend?</label>
+                      <select
+                        id="sos-friend-select"
+                        value={selectedFriend || ''}
+                        onChange={e => { setSelectedFriend(e.target.value); setError(''); }}
+                        className="w-full bg-slate-800 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-red-500 transition-all"
+                      >
+                        <option value="" disabled>-- Select a friend --</option>
+                        {friends.map(f => (
+                          <option key={f._id} value={f._id}>{f.name}{f.relationship ? ` (${f.relationship})` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Location Status */}
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/60 border border-white/5">
+                      <Navigation className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
+                        locStatus === 'granted' ? 'text-green-400' :
+                        locStatus === 'denied' ? 'text-red-400' :
+                        'text-blue-400 animate-pulse'
+                      }`} />
+                      <div className="flex-1 min-w-0">
+                        {locStatus === 'idle' && <p className="text-slate-400 text-xs">Waiting for location…</p>}
+                        {locStatus === 'requesting' && <p className="text-blue-400 text-xs font-medium">Requesting your location…</p>}
+                        {locStatus === 'granted' && location && (
+                          <>
+                            <p className="text-green-400 text-xs font-semibold">📍 Location captured!</p>
+                            <p className="text-slate-500 text-xs mt-0.5 truncate">{location.lat.toFixed(5)}, {location.lng.toFixed(5)}</p>
+                            <p className="text-slate-600 text-xs">Accuracy: ±{Math.round(location.accuracy)}m</p>
+                          </>
+                        )}
+                        {locStatus === 'denied' && (
+                          <>
+                            <p className="text-red-400 text-xs font-semibold">Location access denied</p>
+                            <p className="text-slate-500 text-xs mt-0.5">Alert will send without location.</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Optional Message */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5" /> Message <span className="text-slate-600 font-normal">(optional)</span>
+                      </label>
+                      <textarea
+                        id="sos-message"
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                        placeholder="Describe the situation..."
+                        rows={3}
+                        className="w-full bg-slate-800/60 border border-white/10 text-white placeholder-slate-600 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-red-500 transition-all resize-none"
+                      />
+                    </div>
+
+                    {error && (
+                      <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">{error}</p>
+                    )}
+
+                    {/* Send Button */}
+                    <button
+                      id="sos-send-btn"
+                      onClick={handleSend}
+                      disabled={sending}
+                      className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-50 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all hover:shadow-lg hover:shadow-red-500/30 border border-red-500/30"
+                    >
+                      {sending ? (
+                        <><RefreshCw className="w-4 h-4 animate-spin" /> Sending Alert…</>
+                      ) : (
+                        <><Send className="w-4 h-4" /> 🚨 Send Emergency Alert</>
+                      )}
+                    </button>
+                    <p className="text-slate-600 text-xs text-center">This sends an urgent email with your location to Rama Subramanian</p>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 };
 
@@ -497,6 +707,9 @@ const Vault = () => {
           </div>
         )}
       </div>
+
+      {/* Floating SOS Button */}
+      <FloatingSOS friends={friends} />
 
       {/* Modal */}
       <AnimatePresence>
