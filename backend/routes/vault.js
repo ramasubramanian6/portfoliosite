@@ -7,7 +7,7 @@ const Friend = require('../models/Friend');
 const { protect } = require('../middleware/auth');
 const { sendEmergencyAlert } = require('../utils/email');
 
-// Multer setup for PDF uploads
+// ─── Multer Setup — PDF only, max 10MB ───────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(__dirname, '../uploads/docs');
@@ -15,143 +15,189 @@ const storage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`);
+    // Use a random prefix to prevent filename guessing
+    const randomHex = require('crypto').randomBytes(16).toString('hex');
+    const safe = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, `${randomHex}-${safe}`);
   },
 });
+
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') cb(null, true);
-    else cb(new Error('Only PDF files allowed'));
+    else cb(new Error('Only PDF files are allowed'));
   },
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
 });
 
-// All routes are protected
+// ─── All routes require a valid JWT ──────────────────────────────────────────
 router.use(protect);
 
-// GET /api/vault - get all friends (with search)
+// ─── GET /api/vault — list all contacts (with optional search) ────────────────
 router.get('/', async (req, res) => {
   try {
     const { q } = req.query;
-    let query = { owner: req.user._id };
-    if (q) {
+    const query = { owner: req.user._id };
+
+    if (q && typeof q === 'string') {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { name: { $regex: q, $options: 'i' } },
-        { nickname: { $regex: q, $options: 'i' } },
-        { phone: { $regex: q, $options: 'i' } },
-        { email: { $regex: q, $options: 'i' } },
-        { tags: { $in: [new RegExp(q, 'i')] } },
+        { name: { $regex: escaped, $options: 'i' } },
+        { nickname: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { tags: { $in: [new RegExp(escaped, 'i')] } },
       ];
     }
+
     const friends = await Friend.find(query).sort({ name: 1 });
     res.json(friends);
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/GET]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// GET /api/vault/:id - get single friend
+// ─── GET /api/vault/:id — get single contact ─────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
     const friend = await Friend.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!friend) return res.status(404).json({ message: 'Friend not found' });
+    if (!friend) return res.status(404).json({ message: 'Contact not found' });
     res.json(friend);
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/GET/:id]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// POST /api/vault - add new friend
+// ─── POST /api/vault — create new contact ────────────────────────────────────
 router.post('/', async (req, res) => {
   try {
-    const friend = await Friend.create({ ...req.body, owner: req.user._id });
+    // Whitelist allowed fields — never pass raw req.body directly to create()
+    const {
+      name, nickname, phone, email, address, bloodGroup,
+      dateOfBirth, notes, relationship, emergencyContact, emergencyPhone, tags,
+    } = req.body;
+
+    if (!name) return res.status(400).json({ message: 'Name is required' });
+
+    const friend = await Friend.create({
+      name, nickname, phone, email, address, bloodGroup,
+      dateOfBirth, notes, relationship, emergencyContact, emergencyPhone, tags,
+      owner: req.user._id,
+    });
     res.status(201).json(friend);
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/POST]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// PUT /api/vault/:id - update friend
+// ─── PUT /api/vault/:id — update contact ─────────────────────────────────────
 router.put('/:id', async (req, res) => {
   try {
+    // Whitelist allowed fields — prevent overwriting owner/documents via req.body
+    const {
+      name, nickname, phone, email, address, bloodGroup,
+      dateOfBirth, notes, relationship, emergencyContact, emergencyPhone, tags,
+    } = req.body;
+
+    const allowedUpdates = {
+      name, nickname, phone, email, address, bloodGroup,
+      dateOfBirth, notes, relationship, emergencyContact, emergencyPhone, tags,
+    };
+
     const friend = await Friend.findOneAndUpdate(
       { _id: req.params.id, owner: req.user._id },
-      req.body,
+      allowedUpdates,
       { new: true, runValidators: true }
     );
-    if (!friend) return res.status(404).json({ message: 'Friend not found' });
+    if (!friend) return res.status(404).json({ message: 'Contact not found' });
     res.json(friend);
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/PUT/:id]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// DELETE /api/vault/:id - delete friend
+// ─── DELETE /api/vault/:id — delete contact + all their documents ─────────────
 router.delete('/:id', async (req, res) => {
   try {
     const friend = await Friend.findOneAndDelete({ _id: req.params.id, owner: req.user._id });
-    if (!friend) return res.status(404).json({ message: 'Friend not found' });
-    // Clean up documents
+    if (!friend) return res.status(404).json({ message: 'Contact not found' });
+
+    // Clean up uploaded documents from disk
     for (const doc of friend.documents) {
-      const filePath = path.join(__dirname, '../uploads/docs', doc.filename);
+      // path.basename prevents path traversal
+      const filePath = path.join(__dirname, '../uploads/docs', path.basename(doc.filename));
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
-    res.json({ message: 'Friend deleted' });
+    res.json({ message: 'Contact deleted' });
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/DELETE/:id]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// POST /api/vault/:id/upload - upload PDF document
+// ─── POST /api/vault/:id/upload — upload PDF document ────────────────────────
 router.post('/:id/upload', upload.single('document'), async (req, res) => {
   try {
     const friend = await Friend.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!friend) return res.status(404).json({ message: 'Friend not found' });
+    if (!friend) return res.status(404).json({ message: 'Contact not found' });
     if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+    // Sanitize description input
+    const description = typeof req.body.description === 'string'
+      ? req.body.description.slice(0, 200)
+      : '';
 
     friend.documents.push({
       filename: req.file.filename,
       originalName: req.file.originalname,
-      description: req.body.description || '',
+      description,
     });
     await friend.save();
-    res.json({ message: 'Document uploaded', friend });
+    res.json({ message: 'Document uploaded successfully', friend });
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/upload]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// DELETE /api/vault/:id/document/:docId - delete specific document
+// ─── DELETE /api/vault/:id/document/:docId — delete specific document ─────────
 router.delete('/:id/document/:docId', async (req, res) => {
   try {
     const friend = await Friend.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!friend) return res.status(404).json({ message: 'Friend not found' });
+    if (!friend) return res.status(404).json({ message: 'Contact not found' });
 
     const doc = friend.documents.id(req.params.docId);
     if (!doc) return res.status(404).json({ message: 'Document not found' });
 
-    const filePath = path.join(__dirname, '../uploads/docs', doc.filename);
+    // path.basename prevents path traversal attacks
+    const filePath = path.join(__dirname, '../uploads/docs', path.basename(doc.filename));
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
     friend.documents.pull(req.params.docId);
     await friend.save();
     res.json({ message: 'Document deleted' });
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/delete-doc]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// POST /api/vault/:id/emergency - send emergency alert email
+// ─── POST /api/vault/:id/emergency — send emergency alert ────────────────────
 router.post('/:id/emergency', async (req, res) => {
   try {
     const friend = await Friend.findOne({ _id: req.params.id, owner: req.user._id });
-    if (!friend) return res.status(404).json({ message: 'Friend not found' });
+    if (!friend) return res.status(404).json({ message: 'Contact not found' });
 
     await sendEmergencyAlert(friend.name, req.user.name, req.user.email);
     res.json({ message: `Emergency alert sent for ${friend.name}!` });
   } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
+    console.error('[vault/emergency]', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
