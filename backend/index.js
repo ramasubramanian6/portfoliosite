@@ -13,7 +13,9 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
-  'https://ramasubramanian-a1078.web.app',       // Firebase Hosting (primary)
+  'https://ramasubramanian.in',                   // Custom domain (production)
+  'https://www.ramasubramanian.in',               // Custom domain with www
+  'https://ramasubramanian-a1078.web.app',        // Firebase Hosting (primary)
   'https://ramasubramanian-a1078.firebaseapp.com', // Firebase Hosting (alternate)
 ];
 
