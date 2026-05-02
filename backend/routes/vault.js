@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const Friend = require('../models/Friend');
+const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 const { sendEmergencyAlert } = require('../utils/email');
 
@@ -193,11 +194,14 @@ router.post('/:id/emergency', async (req, res) => {
     const friend = await Friend.findOne({ _id: req.params.id, owner: req.user._id });
     if (!friend) return res.status(404).json({ message: 'Contact not found' });
 
-    // Accept optional location + message from the request body
+    // Load full user profile (emergency contact details, personal info)
+    const fullUser = await User.findById(req.user._id).select('-password -otp -otpExpiry');
+
+    // Accept optional location + message from request body
     const location = req.body && req.body.location ? req.body.location : null;
     const message  = req.body && typeof req.body.message === 'string' ? req.body.message.slice(0, 500) : null;
 
-    await sendEmergencyAlert(friend.name, req.user.name, req.user.email, location, message);
+    await sendEmergencyAlert(fullUser, friend.name, location, message);
     res.json({ message: `Emergency alert sent for ${friend.name}!` });
   } catch (err) {
     console.error('[vault/emergency]', err.message);
