@@ -83,10 +83,10 @@ const Hero = () => {
               </div>
 
               <div className="flex items-center gap-3 sm:gap-5 justify-center lg:justify-start flex-wrap">
-                <a href="https://github.com/" target="_blank" rel="noreferrer" className="text-slate-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
+                <a href="https://github.com/ramasubramanian6" target="_blank" rel="noreferrer" className="text-slate-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
                   <GithubIcon className="w-5 h-5" />
                 </a>
-                <a href="https://linkedin.com/" target="_blank" rel="noreferrer" className="text-slate-500 hover:text-blue-400 transition-colors p-2 hover:bg-blue-500/10 rounded-lg">
+                <a href="https://www.linkedin.com/in/ramasubramanian-fullstack/" target="_blank" rel="noreferrer" className="text-slate-500 hover:text-blue-400 transition-colors p-2 hover:bg-blue-500/10 rounded-lg">
                   <LinkedinIcon className="w-5 h-5" />
                 </a>
                 <a href="mailto:ramasubramanianponni37@gmail.com" className="text-slate-500 hover:text-violet-400 transition-colors p-2 hover:bg-violet-500/10 rounded-lg">
