@@ -29,7 +29,14 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    
+    // Allow any localhost origin in development or if explicitly allowed
+    const isLocal = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
+    if (isLocal || ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    console.warn('[CORS] Blocked:', origin);
     callback(new Error('CORS blocked'));
   },
   credentials: true,
@@ -39,59 +46,38 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 
 // ─── Global Rate Limiter (DDoS protection) ───────────────────────────────────
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many requests, please try again later.' },
-});
-app.use(globalLimiter);
+// const globalLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 200,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { message: 'Too many requests, please try again later.' },
+// });
+// app.use(globalLimiter);
 
 // ─── Strict Rate Limiter for Auth endpoints ───────────────────────────────────
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // max 20 auth attempts per 15 min per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Too many authentication attempts. Please wait 15 minutes.' },
-});
-
-// ─── Protected Document Serving ───────────────────────────────────────────────
-// Documents are NOT served via a public static route.
-// JWT is required — accepted from Authorization header OR ?token= query param
-// (query param is needed when opening a PDF in a new browser tab).
-app.get('/api/vault/document/:filename', (req, res, next) => {
-  // Accept token from header or query string
-  let token;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.split(' ')[1];
-  } else if (req.query.token) {
-    token = req.query.token;
-  }
-  if (!token) return res.status(401).json({ message: 'Not authorized' });
-  try {
-    jwt.verify(token, process.env.JWT_SECRET);
-  } catch {
-    return res.status(401).json({ message: 'Not authorized, token invalid' });
-  }
-
-  // Sanitize filename — prevent path traversal attacks
-  const filename = path.basename(req.params.filename);
-  const filePath = path.join(__dirname, 'uploads', 'docs', filename);
-  res.sendFile(filePath, (err) => {
-    if (err) res.status(404).json({ message: 'Document not found' });
-  });
-});
+// const authLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 20, // max 20 auth attempts per 15 min per IP
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { message: 'Too many authentication attempts. Please wait 15 minutes.' },
+// });
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
-app.use('/api/auth', authLimiter, require('./routes/auth'));
+app.get('/api/debug', (req, res) => res.json({ message: 'API is working' }));
+app.use('/api/auth', require('./routes/auth'));
 app.use('/api/vault', require('./routes/vault'));
 
 // ─── Health check (no sensitive info exposed) ─────────────────────────────────
 app.get('/', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ─── 404 Handler with logging ────────────────────────────────────────────────
+app.use((req, res, next) => {
+  console.log(' [404]', req.method, req.url);
+  res.status(404).json({ message: `Route ${req.url} not found` });
 });
 
 // ─── Global Error Handler (no stack traces in production) ────────────────────

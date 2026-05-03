@@ -209,4 +209,13 @@ router.post('/:id/emergency', async (req, res) => {
   }
 });
 
+// ─── GET /api/vault/document/:filename — serve document (protected) ──────────
+router.get('/document/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(__dirname, '../uploads/docs', filename);
+  res.sendFile(filePath, (err) => {
+    if (err) res.status(404).json({ message: 'Document not found' });
+  });
+});
+
 module.exports = router;

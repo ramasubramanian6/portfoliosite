@@ -10,17 +10,21 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const sendOTP = async (to, otp, name) => {
+const sendOTP = async (to, otp, name, type = 'Verification') => {
   try {
+    const isReset = type.toLowerCase().includes('reset');
+    const subject = isReset ? 'Your Vault PIN Reset Code' : 'Your OTP Verification Code';
+    const actionText = isReset ? 'reset your Vault PIN' : 'verify your email';
+
     const info = await transporter.sendMail({
       from: `"Rama's Friend Vault" <${process.env.EMAIL_USER}>`,
       to,
-      subject: 'Your OTP Verification Code',
+      subject,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; background: #0f172a; color: #e2e8f0; padding: 40px; border-radius: 12px;">
           <h1 style="color: #3b82f6; margin-bottom: 8px;">Friend Vault 🔐</h1>
           <p style="color: #94a3b8;">Hi <strong style="color:#fff">${name}</strong>,</p>
-          <p>Your One-Time Password (OTP) to verify your email:</p>
+          <p>Your One-Time Password (OTP) to ${actionText}:</p>
           <div style="background: #1e293b; border: 2px solid #3b82f6; border-radius: 8px; padding: 24px; text-align: center; margin: 24px 0;">
             <span style="font-size: 40px; font-weight: 900; letter-spacing: 12px; color: #3b82f6;">${otp}</span>
           </div>

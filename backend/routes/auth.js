@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const { sendOTP } = require('../utils/email');
 const { protect } = require('../middleware/auth');
@@ -111,8 +112,6 @@ router.post('/login', async (req, res) => {
       ],
     });
 
-    // Return identical error for both "user not found" and "wrong password"
-    // to prevent user enumeration attacks
     if (!user || !user.isVerified) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -136,7 +135,6 @@ router.post('/resend-otp', async (req, res) => {
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    // Always return success to prevent email enumeration
     if (!user || user.isVerified) {
       return res.json({ message: 'If that email exists and is unverified, an OTP was sent.' });
     }
@@ -266,6 +264,84 @@ router.get('/profile/documents/:filename', protect, (req, res) => {
   res.sendFile(filePath, (err) => {
     if (err) res.status(404).json({ message: 'Document not found' });
   });
+});
+
+// ─── POST /api/auth/vault-pin/set — set / update document vault PIN ───────────
+router.post('/vault-pin/set', protect, async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin || !/^\d{4}$/.test(String(pin)))
+      return res.status(400).json({ message: 'PIN must be exactly 4 digits' });
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.vaultPin = await bcrypt.hash(String(pin), 10);
+    await user.save();
+    res.json({ message: 'Vault PIN set successfully' });
+  } catch (err) {
+    console.error('[vault-pin/set]', err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─── POST /api/auth/vault-pin/verify — verify PIN before showing documents ────
+router.post('/vault-pin/verify', protect, async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin) return res.status(400).json({ message: 'PIN is required' });
+
+    const user = await User.findById(req.user._id).select('+vaultPin');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!user.vaultPin) return res.status(400).json({ message: 'No PIN set yet' });
+
+    const match = await bcrypt.compare(String(pin), user.vaultPin);
+    if (!match) return res.status(401).json({ message: 'Incorrect PIN' });
+    res.json({ message: 'PIN verified' });
+  } catch (err) {
+    console.error('[vault-pin/verify]', err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─── POST /api/auth/vault-pin/reset-request ──────────────────────────────────
+router.post('/vault-pin/reset-request', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+    
+    await sendOTP(user.email, otp, user.name, 'Vault PIN Reset');
+    res.json({ message: 'OTP sent to your email' });
+  } catch (err) {
+    console.error('[vault-pin/reset-request]', err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ─── POST /api/auth/vault-pin/reset-confirm ──────────────────────────────────
+router.post('/vault-pin/reset-confirm', protect, async (req, res) => {
+  try {
+    const { otp, newPin } = req.body;
+    if (!otp || !newPin || !/^\d{4}$/.test(String(newPin)))
+      return res.status(400).json({ message: 'OTP and valid 4-digit PIN are required' });
+
+    const user = await User.findById(req.user._id);
+    if (user.otp !== otp || user.otpExpiry < new Date())
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
+
+    user.vaultPin = await bcrypt.hash(String(newPin), 10);
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    await user.save();
+
+    res.json({ message: 'Vault PIN reset successfully' });
+  } catch (err) {
+    console.error('[vault-pin/reset-confirm]', err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 module.exports = router;

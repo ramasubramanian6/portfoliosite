@@ -24,6 +24,9 @@ const userSchema = new mongoose.Schema({
   // ── Profile complete flag (set true once user fills out personal info) ────────
   profileComplete: { type: Boolean, default: false },
 
+  // ── Vault PIN (hashed 4-digit PIN to access the Documents tab) ───────────────
+  vaultPin: { type: String, select: false },
+
   // ── User's own personal documents (PDFs) ─────────────────────────────────────
   documents: [
     {
