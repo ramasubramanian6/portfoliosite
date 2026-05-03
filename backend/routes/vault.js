@@ -11,7 +11,7 @@ const { sendEmergencyAlert } = require('../utils/email');
 // ─── Multer Setup — PDF only, max 10MB ───────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '../uploads/docs');
+    const dir = path.resolve(process.cwd(), 'uploads/docs');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -212,9 +212,13 @@ router.post('/:id/emergency', async (req, res) => {
 // ─── GET /api/vault/document/:filename — serve document (protected) ──────────
 router.get('/document/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);
-  const filePath = path.join(__dirname, '../uploads/docs', filename);
+  const filePath = path.resolve(process.cwd(), 'uploads/docs', filename);
+  console.log(' [DOCS] Serving friend doc:', filePath);
   res.sendFile(filePath, (err) => {
-    if (err) res.status(404).json({ message: 'Document not found' });
+    if (err) {
+      console.error(' [DOCS] Error sending file:', err.message);
+      res.status(404).json({ message: 'Document not found' });
+    }
   });
 });
 

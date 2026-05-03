@@ -201,7 +201,7 @@ router.put('/profile', protect, async (req, res) => {
 // ─── Multer setup for user personal documents ─────────────────────────────────
 const docStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '../uploads/user-docs');
+    const dir = path.resolve(process.cwd(), 'uploads/user-docs');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -260,9 +260,13 @@ router.delete('/profile/documents/:docId', protect, async (req, res) => {
 // ─── GET /api/auth/profile/documents/:filename — serve user doc (JWT-protected)
 router.get('/profile/documents/:filename', protect, (req, res) => {
   const filename = path.basename(req.params.filename);
-  const filePath = path.join(__dirname, '../uploads/user-docs', filename);
+  const filePath = path.resolve(process.cwd(), 'uploads/user-docs', filename);
+  console.log(' [DOCS] Serving user doc:', filePath);
   res.sendFile(filePath, (err) => {
-    if (err) res.status(404).json({ message: 'Document not found' });
+    if (err) {
+      console.error(' [DOCS] Error sending file:', err.message);
+      res.status(404).json({ message: 'Document not found' });
+    }
   });
 });
 
